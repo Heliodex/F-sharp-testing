@@ -1,45 +1,120 @@
 ﻿open System
 open System.Windows
 open System.Windows.Controls
+open System.Windows.Media
+open System.Windows.Media.Imaging
+open System.Threading
 
-let mutable counter = 0
+type WhatToUpdate =
+    | Text of string
+    | Indeterminate of bool
+    | Progress of float
 
-let app = Application()
+let mutable updater: WhatToUpdate -> unit = fun _ -> ()
 
-printfn "Hello World!"
+let updateProperty (application: Application) property =
+    printfn $"Updating text to {property}"
 
-let text = TextBlock()
-text.Width <- 150
-text.Height <- 20
+    application.Dispatcher.InvokeAsync(Action(fun () -> updater property))
+    |> ignore
 
-let updateText () = text.Text <- $"Clicked {counter} times"
-updateText ()
+let createWindow () =
+    let width = 500.
+    let height = 320.
 
-let mainWindow = Window()
-mainWindow.Visibility <- Visibility.Visible
-mainWindow.Width <- 200
-mainWindow.Height <- 100
+    let icon =
+        let size = 128.
+        let uri = new Uri("./icon.png", UriKind.Relative)
+        Image(Width = size, Height = size, Source = new BitmapImage(uri))
 
-let mainGrid = Grid()
+    let textLabel =
+        TextBlock(
+            Width = 250,
+            Height = 24,
+            FontSize = 15,
+            FontFamily = new FontFamily "Tahoma",
+            Text = "Connecting to Mercury...",
+            TextAlignment = TextAlignment.Center
+        )
 
-let layout = StackPanel()
-layout.Children.Add(text) |> ignore
+    let progressBar = ProgressBar(Width = 450, Height = 20, IsIndeterminate = true)
 
-let button = Button()
-button.Content <- "Increment"
-button.Width <- 150
-button.Height <- 20
+    updater <-
+        function
+        | Text text -> textLabel.Text <- text
+        | Indeterminate determinism -> progressBar.IsIndeterminate <- determinism
+        | Progress progress -> progressBar.Value <- progress
 
-button.Click.Add (fun _ ->
-    counter <- counter + 1
-    updateText ())
 
-layout.Children.Add(button) |> ignore
-mainGrid.Children.Add(layout) |> ignore
+    let children: UIElement [] = [| icon; textLabel; progressBar |]
+    let canvas = Canvas()
 
-mainWindow.Content <- mainGrid
-app.MainWindow <- mainWindow
+    let SetPosition element x y =
+        Canvas.SetLeft(element, x)
+        Canvas.SetTop(element, y)
 
-[<STAThread>]
-[<EntryPoint>]
-let main _ = app.Run()
+    SetPosition icon ((width - icon.Width) / 2.) 45
+    SetPosition textLabel ((width - textLabel.Width) / 2.) 210
+    SetPosition progressBar ((width - progressBar.Width) / 2.) 250
+
+    children
+    |> Array.iter (fun child -> canvas.Children.Add(child) |> ignore)
+
+    let windowPos screenSize windowSize = (screenSize - windowSize) / 2.
+
+    let mainWindow =
+        Window(
+            Visibility = Visibility.Visible,
+            WindowStyle = WindowStyle.None,
+            BorderThickness = Thickness 1,
+            BorderBrush = Brushes.LightGray,
+            AllowsTransparency = true,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = windowPos SystemParameters.PrimaryScreenWidth width,
+            Top = windowPos SystemParameters.PrimaryScreenHeight height,
+            Width = width,
+            Height = height,
+            Content = canvas
+        )
+
+    Application(MainWindow = mainWindow)
+
+let mutable app = null
+
+let startApp () =
+    app <- createWindow ()
+    app.Run() |> ignore
+
+[<EntryPoint; STAThread>]
+let main _ =
+    printfn "Creating window..."
+
+    let thread = Thread(startApp)
+    thread.SetApartmentState(ApartmentState.STA)
+    thread.Start()
+
+    Thread.Sleep(1000)
+    printfn "Starting..."
+    Thread.Sleep(1000)
+
+    let update = updateProperty app
+
+    update (Text "Downloading new data...")
+    Thread.Sleep(1000)
+    update (Indeterminate false)
+    update (Text "Processing data...")
+
+    // tween to simulate progress
+    let times = 60
+
+    for i in 0..times do
+        update (Progress(float (i) / float (times) * 100.))
+        Thread.Sleep(10)
+
+    update (Indeterminate true)
+    update (Text "Starting Mercury...")
+    Thread.Sleep(1000)
+    printfn "Done!"
+
+
+    0
