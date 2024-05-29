@@ -5,17 +5,18 @@ open System.Windows.Media
 open System.Windows.Media.Imaging
 open System.Threading
 
-type WhatToUpdate =
+type Update =
     | Text of string
     | Indeterminate of bool
     | Progress of float
 
-let mutable updater: WhatToUpdate -> unit = fun _ -> ()
+let windowPos screenSize windowSize = (screenSize - windowSize) / 2.
 
-let updateProperty (application: Application) property =
-    printfn $"Updating text to {property}"
+let mutable app: Application = null
+let mutable updater = fun _ -> ()
 
-    application.Dispatcher.InvokeAsync(Action(fun () -> updater property))
+let update prop =
+    app.Dispatcher.InvokeAsync(Action(fun () -> updater prop))
     |> ignore
 
 let createWindow () =
@@ -41,13 +42,10 @@ let createWindow () =
 
     updater <-
         function
-        | Text text -> textLabel.Text <- text
-        | Indeterminate determinism -> progressBar.IsIndeterminate <- determinism
-        | Progress progress -> progressBar.Value <- progress
+        | Text t -> textLabel.Text <- t
+        | Indeterminate d -> progressBar.IsIndeterminate <- d
+        | Progress p -> progressBar.Value <- p
 
-
-    let children: UIElement [] = [| icon; textLabel; progressBar |]
-    let canvas = Canvas()
 
     let SetPosition element x y =
         Canvas.SetLeft(element, x)
@@ -57,10 +55,11 @@ let createWindow () =
     SetPosition textLabel ((width - textLabel.Width) / 2.) 210
     SetPosition progressBar ((width - progressBar.Width) / 2.) 250
 
-    children
-    |> Array.iter (fun child -> canvas.Children.Add(child) |> ignore)
+    let children: UIElement [] = [| icon; textLabel; progressBar |] // I have no idea whether to use a List or an Array
+    let canvas = Canvas()
 
-    let windowPos screenSize windowSize = (screenSize - windowSize) / 2.
+    children
+    |> Array.iter (canvas.Children.Add >> ignore)
 
     let mainWindow =
         Window(
@@ -77,30 +76,23 @@ let createWindow () =
             Content = canvas
         )
 
-    Application(MainWindow = mainWindow)
-
-let mutable app = null
-
-let startApp () =
-    app <- createWindow ()
+    app <- Application(MainWindow = mainWindow)
     app.Run() |> ignore
 
 [<EntryPoint; STAThread>]
 let main _ =
     printfn "Creating window..."
 
-    let thread = Thread(startApp)
-    thread.SetApartmentState(ApartmentState.STA)
+    let thread = Thread createWindow
+    thread.SetApartmentState ApartmentState.STA
     thread.Start()
 
-    Thread.Sleep(1000)
+    Thread.Sleep 1000
     printfn "Starting..."
-    Thread.Sleep(1000)
-
-    let update = updateProperty app
+    Thread.Sleep 1000
 
     update (Text "Downloading new data...")
-    Thread.Sleep(1000)
+    Thread.Sleep 1000
     update (Indeterminate false)
     update (Text "Processing data...")
 
@@ -109,12 +101,13 @@ let main _ =
 
     for i in 0..times do
         update (Progress(float (i) / float (times) * 100.))
-        Thread.Sleep(10)
+        Thread.Sleep 10
 
     update (Indeterminate true)
     update (Text "Starting Mercury...")
-    Thread.Sleep(1000)
+    Thread.Sleep 1000
     printfn "Done!"
-
+    Thread.Sleep 1000
+    app.Shutdown()
 
     0
