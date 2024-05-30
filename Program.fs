@@ -5,30 +5,28 @@ open System.Windows.Media
 open System.Windows.Media.Imaging
 open System.Threading
 
+// Really starting to get the hang of this F# thing
 type Update =
     | Text of string
-    | Indeterminate of bool
     | Progress of float
+    | Indeterminate of bool
 
-let windowPos screenSize windowSize = (screenSize - windowSize) / 2.
+type AppEvent =
+    | Update of Update
+    | Shutdown
 
-let mutable app: Application = null
-let mutable updater = fun _ -> ()
-
-let update prop =
-    app.Dispatcher.InvokeAsync(Action(fun () -> updater prop))
-    |> ignore
+// Async update event
+let appEvent = Event<AppEvent>()
 
 let createWindow () =
-    let width = 500.
-    let height = 320.
+    let width, height = 500., 320.
 
     let icon =
         let size = 128.
         let uri = new Uri("./icon.png", UriKind.Relative)
         Image(Width = size, Height = size, Source = new BitmapImage(uri))
 
-    let textLabel =
+    let text =
         TextBlock(
             Width = 250,
             Height = 24,
@@ -38,28 +36,23 @@ let createWindow () =
             TextAlignment = TextAlignment.Center
         )
 
-    let progressBar = ProgressBar(Width = 450, Height = 20, IsIndeterminate = true)
-
-    updater <-
-        function
-        | Text t -> textLabel.Text <- t
-        | Indeterminate d -> progressBar.IsIndeterminate <- d
-        | Progress p -> progressBar.Value <- p
-
+    let progress = ProgressBar(Width = 450, Height = 20, IsIndeterminate = true)
 
     let SetPosition element x y =
         Canvas.SetLeft(element, x)
         Canvas.SetTop(element, y)
 
     SetPosition icon ((width - icon.Width) / 2.) 45
-    SetPosition textLabel ((width - textLabel.Width) / 2.) 210
-    SetPosition progressBar ((width - progressBar.Width) / 2.) 250
+    SetPosition text ((width - text.Width) / 2.) 210
+    SetPosition progress ((width - progress.Width) / 2.) 250
 
-    let children: UIElement [] = [| icon; textLabel; progressBar |] // I have no idea whether to use a List or an Array
+    let children: UIElement [] = [| icon; text; progress |] // I have no idea whether to use a List or an Array
     let canvas = Canvas()
 
     children
-    |> Array.iter (canvas.Children.Add >> ignore)
+    |> Array.iter (canvas.Children.Add >> ignore) // Function composition makes me feel like a god
+
+    let windowPos screenSize windowSize = (screenSize - windowSize) / 2.
 
     let mainWindow =
         Window(
@@ -76,7 +69,17 @@ let createWindow () =
             Content = canvas
         )
 
-    app <- Application(MainWindow = mainWindow)
+    let app = Application(MainWindow = mainWindow)
+
+    // awesome pattern matching
+    appEvent.Publish.Add (function
+        | Update u ->
+            match u with
+            | Text t -> text.Text <- t
+            | Progress p -> progress.Value <- p
+            | Indeterminate d -> progress.IsIndeterminate <- d
+        | Shutdown -> app.Shutdown())
+
     app.Run() |> ignore
 
 [<EntryPoint; STAThread>]
@@ -87,17 +90,17 @@ let main _ =
     thread.SetApartmentState ApartmentState.STA
     thread.Start()
 
-    Thread.Sleep 1000
-    printfn "Starting..."
-    Thread.Sleep 1000
+    Thread.Sleep 500
+
+    let update u = appEvent.Trigger(Update u)
 
     update (Text "Downloading new data...")
-    Thread.Sleep 1000
+    Thread.Sleep 500
     update (Indeterminate false)
     update (Text "Processing data...")
 
     // tween to simulate progress
-    let times = 60
+    let times = 30
 
     for i in 0..times do
         update (Progress(float (i) / float (times) * 100.))
@@ -105,9 +108,9 @@ let main _ =
 
     update (Indeterminate true)
     update (Text "Starting Mercury...")
-    Thread.Sleep 1000
+    Thread.Sleep 500
     printfn "Done!"
-    Thread.Sleep 1000
-    app.Shutdown()
+    Thread.Sleep 500
+    appEvent.Trigger Shutdown
 
     0
