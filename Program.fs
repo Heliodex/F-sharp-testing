@@ -1,99 +1,44 @@
 ﻿open System
-open System.Windows
-open System.Windows.Controls
-open System.Windows.Media
-open System.Windows.Media.Imaging
 open System.Threading
+open System.IO
+open System.Diagnostics
+open LauncherWindow
 
-// Really starting to get the hang of this F# thing
-type Update =
-    | Text of string
-    | Progress of float
-    | Indeterminate of bool
+type ErrorType =
+    | MercuryNotFound
+    | FailedToStartMercury of exn
 
-type AppEvent =
-    | Update of Update
-    | Shutdown
+let (>>=) f x = Result.bind x f
 
-// Async update event
-let appEvent = Event<AppEvent>()
+let findPath version =
+    // get from %localappdata%
+    let localappdata =
+        Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
 
-let createWindow () =
-    let width, height = 500., 320.
+    let path =
+        $"%s{localappdata}\\Mercury\\Versions\\%s{version}\\MercuryPlayerBeta.exe"
 
-    let icon =
-        let size = 128.
-        let uri = new Uri("./icon.png", UriKind.Relative)
-        Image(Width = size, Height = size, Source = new BitmapImage(uri))
+    match File.Exists path with
+    | true -> Ok path
+    | false -> Error MercuryNotFound
 
-    let text =
-        TextBlock(
-            Width = 250,
-            Height = 24,
-            FontSize = 15,
-            FontFamily = new FontFamily "Tahoma",
-            Text = "Connecting to Mercury...",
-            TextAlignment = TextAlignment.Center
-        )
+let startApp (path: string) =
+    try
+        Ok(Process.Start path)
+    with
+    | e -> Error(FailedToStartMercury e)
 
-    let progress = ProgressBar(Width = 450, Height = 20, IsIndeterminate = true)
-
-    let SetPosition element x y =
-        Canvas.SetLeft(element, x)
-        Canvas.SetTop(element, y)
-
-    SetPosition icon ((width - icon.Width) / 2.) 45
-    SetPosition text ((width - text.Width) / 2.) 210
-    SetPosition progress ((width - progress.Width) / 2.) 250
-
-    let children: UIElement [] = [| icon; text; progress |] // I have no idea whether to use a List or an Array
-    let canvas = Canvas()
-
-    children
-    |> Array.iter (canvas.Children.Add >> ignore) // Function composition makes me feel like a god
-
-    let windowPos screenSize windowSize = (screenSize - windowSize) / 2.
-
-    let mainWindow =
-        Window(
-            Visibility = Visibility.Visible,
-            WindowStyle = WindowStyle.None,
-            BorderThickness = Thickness 1,
-            BorderBrush = Brushes.LightGray,
-            AllowsTransparency = true,
-            WindowStartupLocation = WindowStartupLocation.Manual,
-            Left = windowPos SystemParameters.PrimaryScreenWidth width,
-            Top = windowPos SystemParameters.PrimaryScreenHeight height,
-            Width = width,
-            Height = height,
-            Content = canvas
-        )
-
-    let app = Application(MainWindow = mainWindow)
-
-    // awesome pattern matching
-    appEvent.Publish.Add (function
-        | Update u ->
-            match u with
-            | Text t -> text.Text <- t
-            | Progress p -> progress.Value <- p
-            | Indeterminate d -> progress.IsIndeterminate <- d
-        | Shutdown -> app.Shutdown())
-
-    app.Run() |> ignore
-
-[<EntryPoint; STAThread>]
-let main _ =
+let init () =
     printfn "Creating window..."
 
-    let thread = Thread createWindow
+    let thread = Thread(ThreadStart createWindow)
     thread.SetApartmentState ApartmentState.STA
     thread.Start()
 
     Thread.Sleep 500
+    printfn "Window created!"
 
-    let update u = appEvent.Trigger(Update u)
-
+    Thread.Sleep 500
     update (Text "Downloading new data...")
     Thread.Sleep 500
     update (Indeterminate false)
@@ -108,9 +53,31 @@ let main _ =
 
     update (Indeterminate true)
     update (Text "Starting Mercury...")
+
+
+    let startApp v = Ok v >>= findPath >>= startApp
+
+    let version = "version-17bef3811fe76890"
+
+    match startApp version with
+    | Ok s -> printfn $"Success! {s}"
+    | Error e ->
+        match e with
+        | MercuryNotFound -> printfn "Mercury not found"
+        | FailedToStartMercury ex -> printfn $"Failed to start Mercury: {ex.Message}"
+
     Thread.Sleep 500
-    printfn "Done!"
-    Thread.Sleep 500
-    appEvent.Trigger Shutdown
+    update Shutdown
+
+
+[<EntryPoint; STAThread>]
+let main _ =
+    // dot net error handling bruh
+    try
+        init ()
+    with
+    | e ->
+        printfn $"Error: {e.Message}"
+        Environment.Exit 1
 
     0
