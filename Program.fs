@@ -1,32 +1,66 @@
 ﻿open System
-open System.Threading
-open System.IO
 open System.Diagnostics
+open System.IO
+open System.Net.Http
+open System.Threading
+open FSharp.Core.Result
 open LauncherWindow
 
 type ErrorType =
+    | VersionTooLong
+    | VersionMissing
+    | VersionError
+    | VersionExn of exn
     | MercuryNotFound
-    | FailedToStartMercury of exn
+    | FailedToLaunch of exn
 
-let (>>=) f x = Result.bind x f
+let (>>=) f x = bind x f
 
-let findPath version =
-    // get from %localappdata%
-    let localappdata =
-        Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
+let log i =
+    printfn $"[LOG] {i}"
+    Ok i
 
-    let path =
-        $"%s{localappdata}\\Mercury\\Versions\\%s{version}\\MercuryPlayerBeta.exe"
+let url = "https://mercury2.com"
 
-    match File.Exists path with
-    | true -> Ok path
+let getVersion () =
+    try
+        let version =
+            task {
+                use client = new HttpClient()
+                let! response = client.GetAsync url
+                printfn $"Response: {response}"
+                return! response.Content.ReadAsStringAsync()
+            }
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+
+        if version.Length > 32 then
+            Error VersionTooLong
+        elif version.Length = 0 then
+            Error VersionMissing
+        else
+            Ok version
+    with
+    | e -> Error(VersionExn e)
+
+
+let getPath v =
+    Ok [| Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
+          "Mercury"
+          "Versions"
+          v
+          "MercuryPlayerBeta.exe" |]
+
+let ensureValidPath p =
+    match File.Exists p with
+    | true -> Ok p
     | false -> Error MercuryNotFound
 
-let startApp (path: string) =
+let launch (p: string) =
     try
-        Ok(Process.Start path)
+        Ok(Process.Start p)
     with
-    | e -> Error(FailedToStartMercury e)
+    | e -> Error(FailedToLaunch e)
 
 let init () =
     printfn "Creating window..."
@@ -54,17 +88,26 @@ let init () =
     update (Indeterminate true)
     update (Text "Starting Mercury...")
 
+    let result =
+        getVersion ()
+        >>= log
+        >>= getPath
+        >>= log
+        |> map Path.Combine
+        >>= ensureValidPath
+        >>= log
+        >>= launch
 
-    let startApp v = Ok v >>= findPath >>= startApp
-
-    let version = "version-17bef3811fe76890"
-
-    match startApp version with
+    match result with
     | Ok s -> printfn $"Success! {s}"
     | Error e ->
         match e with
+        | VersionTooLong -> printfn "Version string too long"
+        | VersionMissing -> printfn "Version response was missing"
+        | VersionError -> printfn "Version error"
+        | VersionExn ex -> printfn $"Version exception: {ex.Message}"
         | MercuryNotFound -> printfn "Mercury not found"
-        | FailedToStartMercury ex -> printfn $"Failed to start Mercury: {ex.Message}"
+        | FailedToLaunch ex -> printfn $"Failed to start Mercury: {ex.Message}"
 
     Thread.Sleep 500
     update Shutdown
