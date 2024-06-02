@@ -1,16 +1,18 @@
 ﻿open System
 open System.Diagnostics
 open System.IO
+open System.Net
 open System.Net.Http
 open System.Threading
+open System.Windows
 open FSharp.Core.Result
 open LauncherWindow
 
 type ErrorType =
     | VersionTooLong
     | VersionMissing
-    | VersionError
-    | VersionExn of exn
+    | VersionFailedToGet of HttpStatusCode
+    | FailedToConnect of exn
     | MercuryNotFound
     | FailedToLaunch of exn
 
@@ -20,38 +22,61 @@ let log i =
     printfn $"[LOG] {i}"
     Ok i
 
-let url = "https://mercury2.com"
+let url = "https://setup.mercury2.com/versin.txt"
 
-let getVersion () =
+let requestVersion () =
+    update (Text "Connecting to Mercury...")
+    let client = new HttpClient()
+
     try
-        let version =
-            task {
-                use client = new HttpClient()
-                let! response = client.GetAsync url
-                printfn $"Response: {response}"
-                return! response.Content.ReadAsStringAsync()
-            }
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
+        let response = (client.GetAsync url).Result
 
-        if version.Length > 32 then
-            Error VersionTooLong
-        elif version.Length = 0 then
-            Error VersionMissing
+        if response.StatusCode = HttpStatusCode.OK then
+            Ok(response.Content.ReadAsStringAsync().Result)
         else
-            Ok version
+            update (
+                MessageBox
+                    $"Failed to get version from Mercury\n\
+                    Error: {response.ReasonPhrase}.\n\
+                    \n\
+                    Would you like to continue anyway with the latest existing version?"
+            )
+
+            printfn "Waiting..."
+            // await the next event from messageBoxReturn
+            let ret =
+                messageBoxReturn.Publish
+                |> Async.AwaitEvent
+                |> Async.RunSynchronously
+
+            printfn "Got!"
+
+            match ret with
+            | MessageBoxResult.OK -> Ok "version-17bef3811fe76890"
+            | _ -> Error(VersionFailedToGet response.StatusCode)
     with
-    | e -> Error(VersionExn e)
+    | e -> Error(FailedToConnect e)
+
+
+let validateVersion (v: string) =
+    if v.Length > 32 then
+        Error VersionTooLong
+    elif v.Length = 0 then
+        Error VersionMissing
+    else
+        Ok v
 
 
 let getPath v =
+    update (Text "Starting Mercury...")
+
     Ok [| Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
           "Mercury"
           "Versions"
           v
           "MercuryPlayerBeta.exe" |]
 
-let ensureValidPath p =
+let validatePath p =
     match File.Exists p with
     | true -> Ok p
     | false -> Error MercuryNotFound
@@ -72,29 +97,15 @@ let init () =
     Thread.Sleep 500
     printfn "Window created!"
 
-    Thread.Sleep 500
-    update (Text "Downloading new data...")
-    Thread.Sleep 500
-    update (Indeterminate false)
-    update (Text "Processing data...")
-
-    // tween to simulate progress
-    let times = 30
-
-    for i in 0..times do
-        update (Progress(float (i) / float (times) * 100.))
-        Thread.Sleep 10
-
-    update (Indeterminate true)
-    update (Text "Starting Mercury...")
-
     let result =
-        getVersion ()
+        requestVersion ()
+        >>= log
+        >>= validateVersion
         >>= log
         >>= getPath
         >>= log
         |> map Path.Combine
-        >>= ensureValidPath
+        >>= validatePath
         >>= log
         >>= launch
 
@@ -104,8 +115,8 @@ let init () =
         match e with
         | VersionTooLong -> printfn "Version string too long"
         | VersionMissing -> printfn "Version response was missing"
-        | VersionError -> printfn "Version error"
-        | VersionExn ex -> printfn $"Version exception: {ex.Message}"
+        | VersionFailedToGet code -> printfn $"Failed to get version: Error {code}"
+        | FailedToConnect ex -> printfn $"Failed to connect to Mercury: {ex.Message}"
         | MercuryNotFound -> printfn "Mercury not found"
         | FailedToLaunch ex -> printfn $"Failed to start Mercury: {ex.Message}"
 

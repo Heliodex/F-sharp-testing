@@ -11,11 +11,14 @@ type Update =
     | Text of string
     | Progress of float
     | Indeterminate of bool
+    | MessageBox of string
     | Shutdown
 
 let connect, update =
     let e = Event<Update>()
     e.Publish.Add, e.Trigger
+
+let messageBoxReturn = Event<MessageBoxResult>()
 
 let createWindow () =
     let width, height = 500., 320.
@@ -76,6 +79,14 @@ let createWindow () =
         | Text t -> text.Text <- t
         | Progress p -> progress.Value <- p
         | Indeterminate d -> progress.IsIndeterminate <- d
+        | MessageBox s ->
+            // required to be here, as first argument being window is required for top z-index
+            // also needs to be async so it dont block
+            async {
+                let result = MessageBox.Show(s, "Mercury Launcher", MessageBoxButton.OKCancel)
+                messageBoxReturn.Trigger(result)
+            }
+            |> Async.Start
         | Shutdown -> app.Shutdown()
 
     connect (fun update ->
