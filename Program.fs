@@ -22,9 +22,24 @@ let log i =
     printfn $"[LOG] {i}"
     Ok i
 
-let url = "https://setup.mercury2.com/versin.txt"
+let url = "https://setup.mercury2.com/version.txt"
+
+let requestVersionFail r =
+    update (
+        MessageBox
+            $"\
+            An error occurred when trying to get the version from Mercury\n\
+            Details: {r}.\n\
+            \n\
+            Would you like to continue anyway with the latest local version?"
+    )
+
+    messageBoxReturn.Publish
+    |> Async.AwaitEvent
+    |> Async.RunSynchronously
 
 let requestVersion () =
+    printfn "Requesting version..."
     update (Text "Connecting to Mercury...")
     let client = new HttpClient()
 
@@ -34,29 +49,14 @@ let requestVersion () =
         if response.StatusCode = HttpStatusCode.OK then
             Ok(response.Content.ReadAsStringAsync().Result)
         else
-            update (
-                MessageBox
-                    $"Failed to get version from Mercury\n\
-                    Error: {response.ReasonPhrase}.\n\
-                    \n\
-                    Would you like to continue anyway with the latest existing version?"
-            )
-
-            printfn "Waiting..."
-            // await the next event from messageBoxReturn
-            let ret =
-                messageBoxReturn.Publish
-                |> Async.AwaitEvent
-                |> Async.RunSynchronously
-
-            printfn "Got!"
-
-            match ret with
+            match requestVersionFail response.ReasonPhrase with
             | MessageBoxResult.OK -> Ok "version-17bef3811fe76890"
             | _ -> Error(VersionFailedToGet response.StatusCode)
     with
-    | e -> Error(FailedToConnect e)
-
+    | e ->
+        match requestVersionFail e.Message with
+        | MessageBoxResult.OK -> Ok "version-17bef3811fe76890"
+        | _ -> Error(FailedToConnect e)
 
 let validateVersion (v: string) =
     if v.Length > 32 then
@@ -65,7 +65,6 @@ let validateVersion (v: string) =
         Error VersionMissing
     else
         Ok v
-
 
 let getPath v =
     update (Text "Starting Mercury...")
@@ -83,7 +82,7 @@ let validatePath p =
 
 let launch (p: string) =
     try
-        Ok(Process.Start p)
+        Ok(Process.Start(p, "--API test"))
     with
     | e -> Error(FailedToLaunch e)
 
@@ -94,8 +93,7 @@ let init () =
     thread.SetApartmentState ApartmentState.STA
     thread.Start()
 
-    Thread.Sleep 500
-    printfn "Window created!"
+    printfn "Window created"
 
     let result =
         requestVersion ()
@@ -103,7 +101,6 @@ let init () =
         >>= validateVersion
         >>= log
         >>= getPath
-        >>= log
         |> map Path.Combine
         >>= validatePath
         >>= log
@@ -120,7 +117,6 @@ let init () =
         | MercuryNotFound -> printfn "Mercury not found"
         | FailedToLaunch ex -> printfn $"Failed to start Mercury: {ex.Message}"
 
-    Thread.Sleep 500
     update Shutdown
 
 
