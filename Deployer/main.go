@@ -11,7 +11,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
+
+	"github.com/andybalholm/brotli"
 )
 
 const (
@@ -50,6 +53,67 @@ func tarGzStagingDir(o *bytes.Buffer) (ext string, err error) {
 	defer w.Close()
 
 	return ext, w.AddFS(os.DirFS(input))
+}
+
+func brStagingDir(o *bytes.Buffer) (ext string, err error) {
+	ext = ".tar.br"
+
+	br := brotli.NewWriter(o)
+	defer br.Close()
+
+	w := tar.NewWriter(br)
+	defer w.Close()
+
+	return ext, w.AddFS(os.DirFS(input))
+}
+
+func shartStagingDir(o *bytes.Buffer) (ext string, err error) {
+	ext = ".shart"
+
+	t := &bytes.Buffer{}
+	w := tar.NewWriter(t)
+	defer w.Close()
+
+	if err = w.AddFS(os.DirFS(input)); err != nil {
+		return "", fmt.Errorf("error adding files to tar: %w", err)
+	}
+
+	bs := t.Bytes()
+
+	// split tar file into chunks
+	const chunks = 12
+	chunkSize := t.Len()/chunks + 1 // 1/4 of the file size
+
+	writers := make([]*bytes.Buffer, chunks)
+
+	var wg sync.WaitGroup
+	wg.Add(chunks)
+
+	for i := range writers {
+		writers[i] = &bytes.Buffer{}
+
+		start := i * chunkSize
+		end := min(start+chunkSize, t.Len())
+
+		go func(i int, start, end int) {
+			fmt.Printf("Compressing chunk %d: %d-%d\n", i, start, end)
+			defer wg.Done()
+			br := brotli.NewWriter(writers[i])
+			defer br.Close()
+			br.Write(bs[start:end])
+		}(i, start, end)
+	}
+
+	wg.Wait()
+
+	// write all chunks to the output buffer
+	for i, writer := range writers {
+		if _, err := o.Write(writer.Bytes()); err != nil {
+			return "", fmt.Errorf("error writing chunk %d: %w", i, err)
+		}
+	}
+
+	return
 }
 
 func writeStagingDir(o *bytes.Buffer, ext string) (err error) {
