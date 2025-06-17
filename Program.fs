@@ -23,23 +23,9 @@ let log i =
 
 let url = $"https://setup.{domain}/version.txt"
 
-let requestVersionFail (e: Event<Update>) r =
-    e.Trigger(
-        MessageBox
-            $"\
-            An error occurred when trying to get the version from {name}\n\
-            Details: {r}.\n\
-            \n\
-            Would you like to continue anyway with the latest local version?" // todo: remove
-    )
-
-    messageBoxReturn.Publish
-    |> Async.AwaitEvent
-    |> Async.RunSynchronously
-
-let requestVersion (e: Event<Update>) =
+let requestVersion (u: Event<Update>) =
     printfn "Requesting version..."
-    e.Trigger(Text $"Connecting to {name}...")
+    u.Trigger(Text $"Connecting to {name}...")
     let client = new HttpClient()
 
     try
@@ -50,6 +36,7 @@ let requestVersion (e: Event<Update>) =
         else
             Error(VersionFailedToGet response.StatusCode)
     with
+    | :? AggregateException as e -> Error(FailedToConnect e.InnerException)
     | e -> Error(FailedToConnect e)
 
 let validateVersion (v: string) =
@@ -60,8 +47,8 @@ let validateVersion (v: string) =
     else
         Ok v
 
-let getPath (e: Event<Update>) v =
-    e.Trigger(Text $"Starting {name}...")
+let getPath (u: Event<Update>) v =
+    u.Trigger(Text $"Starting {name}...")
 
     Ok [| Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
           name
@@ -80,13 +67,56 @@ let launch (p: string) =
     with
     | e -> Error(FailedToLaunch e)
 
-let init (e: Event<Update>) =
+let handleError (u: Event<Update>) =
+    function
+    | VersionTooLong ->
+        u.Trigger(
+            ErrorMessage
+                $"There was an error when trying to get the version from {name}.\n\
+                    The version string for {name} is too long."
+        )
+    | VersionMissing ->
+        u.Trigger(
+            ErrorMessage
+                $"There was an error when trying to get the version from {name}.\n\
+                    The version string for {name} is missing."
+        )
+    | VersionFailedToGet code ->
+        u.Trigger(
+            ErrorMessage
+                $"There was an error when trying to get the version from {name}.\n\
+                    The server returned a {code} status code."
+        )
+    | FailedToConnect ex ->
+        u.Trigger(
+            ErrorMessage
+                $"Failed to connect to {name}.\n\
+                    Please check your internet connection and try again.\n\
+                    \n\
+                    Details: {ex.Message}"
+        )
+    | ClientNotFound ->
+        u.Trigger(
+            ErrorMessage
+                $"The {name} client was not found.\n\
+                    Please make sure that the client is installed and try again."
+        )
+    | FailedToLaunch ex ->
+        u.Trigger(
+            ErrorMessage
+                $"Failed to launch {name}.\n\
+                    Please make sure that the client is installed and try again.\n\
+                    \n\
+                    Details: {ex.Message}"
+        )
+
+let init (u: Event<Update>) =
     let result =
-        requestVersion e
+        requestVersion u
         >>= log
         >>= validateVersion
         >>= log
-        >>= getPath e
+        >>= getPath u
         |> map Path.Combine
         >>= validatePath
         >>= log
@@ -94,18 +124,9 @@ let init (e: Event<Update>) =
 
     match result with
     | Ok s -> printfn $"Success! {s}"
-    | Error e ->
-        match e with
-        | VersionTooLong -> printfn "Version string too long"
-        | VersionMissing -> printfn "Version response was missing"
-        | VersionFailedToGet code -> printfn $"Failed to get version: Error {code}"
-        | FailedToConnect ex -> printfn $"Failed to connect to {name}: {ex.Message}"
-        | ClientNotFound -> printfn $"{name} not found"
-        | FailedToLaunch ex -> printfn $"Failed to start {name}: {ex.Message}"
+    | Error e -> handleError u e
 
-    printfn "Waiting for window to close..."
-    e.Trigger Shutdown
-    printfn "closd."
+    u.Trigger Shutdown
 
 [<EntryPoint; STAThread>]
 let main _ =

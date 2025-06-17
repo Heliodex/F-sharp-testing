@@ -12,7 +12,7 @@ type Update =
     | Text of string
     | Progress of float
     | Indeterminate of bool
-    | MessageBox of string
+    | ErrorMessage of string
     | Shutdown
 
 let messageBoxReturn = Event<MessageBoxResult>()
@@ -110,7 +110,7 @@ let ui2012 () =
 
 let createWindow xfn =
     let app, text, progress = ui2016 ()
-    let e = Event<Update>()
+    let u = Event<Update>()
 
     // awesome pattern matching
     let updateMatch =
@@ -118,19 +118,15 @@ let createWindow xfn =
         | Text t -> text.Text <- t
         | Progress p -> progress.Value <- p
         | Indeterminate d -> progress.IsIndeterminate <- d
-        | MessageBox s ->
-            // required to be here, as first argument being window is required for top z-index
-            // also needs to be async so it dont block
-            printfn "1"
+        | ErrorMessage s ->
+            app.Shutdown()
 
-            MessageBox.Show(s, $"{name} launcher", MessageBoxButton.YesNo)
-            |> messageBoxReturn.Trigger
-
-            printfn "2"
+            MessageBox.Show(s, $"{name} launcher", MessageBoxButton.OK, MessageBoxImage.Error)
+            |> ignore
         | Shutdown -> app.Shutdown()
 
-    e.Publish.Add(fun update -> app.Dispatcher.Invoke(fun () -> updateMatch update))
+    u.Publish.Add(fun update -> app.Dispatcher.Invoke(fun () -> updateMatch update))
 
-    app.MainWindow.Loaded.Add(fun _ -> xfn e)
+    app.MainWindow.Loaded.Add(fun _ -> xfn u)
 
     app.Run() |> ignore
