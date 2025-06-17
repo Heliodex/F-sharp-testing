@@ -5,120 +5,64 @@ package main
 
 import (
 	"archive/tar"
-	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha3"
+	"encoding/base32"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
-
-	"github.com/andybalholm/brotli"
 )
 
 const (
-	name       = "Mercury"
-	input      = "./staging"
-	output     = "./setup"
-	launcher   = input + "/" + name + "PlayerLauncher.exe"
-	outputTest = output + "/" + name + "Setup"
+	name     = "Mercury"
+	input    = "./staging"
+	output   = "./setup"
+	launcher = input + "/" + name + "PlayerLauncher.exe"
+	ext      = ".tar.gz"
 )
 
-func tarStagingDir(o *bytes.Buffer) (ext string, err error) {
-	ext = ".tar"
+var encoding = base32.NewEncoding("0123456789abcdefghijklmnopqrstuv").WithPadding(base32.NoPadding)
 
-	w := tar.NewWriter(o)
-	defer w.Close()
-
-	return ext, w.AddFS(os.DirFS(input))
-}
-
-func zipStagingDir(o *bytes.Buffer) (ext string, err error) {
-	ext = ".zip"
-
-	w := zip.NewWriter(o)
-	defer w.Close()
-
-	return ext, w.AddFS(os.DirFS(input))
-}
-
-func tarGzStagingDir(o *bytes.Buffer) (ext string, err error) {
-	ext = ".tar.gz"
-
-	gz := gzip.NewWriter(o)
+func compressStagingDir(o *bytes.Buffer) (id string, err error) {
+	gz, _ := gzip.NewWriterLevel(o, gzip.BestCompression)
 	defer gz.Close()
 
 	w := tar.NewWriter(gz)
 	defer w.Close()
 
-	return ext, w.AddFS(os.DirFS(input))
-}
-
-func brStagingDir(o *bytes.Buffer) (ext string, err error) {
-	ext = ".tar.br"
-
-	br := brotli.NewWriter(o)
-	defer br.Close()
-
-	w := tar.NewWriter(br)
-	defer w.Close()
-
-	return ext, w.AddFS(os.DirFS(input))
-}
-
-func shartStagingDir(o *bytes.Buffer) (ext string, err error) {
-	ext = ".shart"
-
-	t := &bytes.Buffer{}
-	w := tar.NewWriter(t)
-	defer w.Close()
-
 	if err = w.AddFS(os.DirFS(input)); err != nil {
-		return "", fmt.Errorf("error adding files to tar: %w", err)
+		return
 	}
 
-	bs := t.Bytes()
+	// current unix timestamp
+	now := time.Now().Unix()
 
-	// split tar file into chunks
-	const chunks = 12
-	chunkSize := t.Len()/chunks + 1 // 1/4 of the file size
+	// convert int64 to bytes
+	nowbytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(nowbytes, uint64(now))
 
-	writers := make([]*bytes.Buffer, chunks)
-
-	var wg sync.WaitGroup
-	wg.Add(chunks)
-
-	for i := range writers {
-		writers[i] = &bytes.Buffer{}
-
-		start := i * chunkSize
-		end := min(start+chunkSize, t.Len())
-
-		go func(i int, start, end int) {
-			fmt.Printf("Compressing chunk %d: %d-%d\n", i, start, end)
-			defer wg.Done()
-			br := brotli.NewWriter(writers[i])
-			defer br.Close()
-			br.Write(bs[start:end])
-		}(i, start, end)
-	}
-
-	wg.Wait()
-
-	// write all chunks to the output buffer
-	for i, writer := range writers {
-		if _, err := o.Write(writer.Bytes()); err != nil {
-			return "", fmt.Errorf("error writing chunk %d: %w", i, err)
+	// trim leading zeros
+	for i, b := range nowbytes {
+		if b != 0 {
+			nowbytes = nowbytes[i:]
+			break
 		}
 	}
 
-	return
+	enctime := encoding.EncodeToString(nowbytes)
+
+	hash := sha3.SumSHAKE256(o.Bytes(), 4)
+	enchash := encoding.EncodeToString(hash[:])
+
+	return enctime + "-" + enchash, nil
 }
 
-func writeStagingDir(o *bytes.Buffer, ext string) (err error) {
+func writeStagingDir(hash string, o *bytes.Buffer) (err error) {
 	// write to output file
-	outputFile, err := os.Create(outputTest + ext)
+	outputFile, err := os.Create(output + "/" + hash + ext)
 	if err != nil {
 		return fmt.Errorf("error creating output file: %w", err)
 	}
@@ -187,7 +131,7 @@ func main() {
 	start := time.Now()
 
 	o := &bytes.Buffer{}
-	ext, err := tarGzStagingDir(o)
+	id, err := compressStagingDir(o)
 	if err != nil {
 		fmt.Println("Error compressing staging directory:", err)
 		os.Exit(1)
@@ -197,7 +141,7 @@ func main() {
 	start = time.Now()
 
 	// zip staging files to output directory
-	if err := writeStagingDir(o, ext); err != nil {
+	if err := writeStagingDir(id, o); err != nil {
 		fmt.Println("Error compressing staging files:", err)
 		os.Exit(1)
 	}
