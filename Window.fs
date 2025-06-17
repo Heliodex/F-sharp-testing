@@ -1,10 +1,11 @@
-module LauncherWindow
+module Window
 
 open System
 open System.Windows
 open System.Windows.Controls
 open System.Windows.Media
 open System.Windows.Media.Imaging
+open Config
 
 // Really starting to get the hang of this F# thing
 type Update =
@@ -40,7 +41,7 @@ let ui2016 () =
             Height = 24,
             FontSize = 15,
             FontFamily = FontFamily "Tahoma",
-            Text = "Connecting to Mercury...",
+            Text = "Initialising launcher...",
             TextAlignment = TextAlignment.Center
         )
 
@@ -78,12 +79,7 @@ let ui2012 () =
     let icon = createIcon 30
 
     let text =
-        TextBlock(
-            Height = 24,
-            FontSize = 13,
-            Text = "Connecting to Mercury...",
-            TextAlignment = TextAlignment.Center
-        )
+        TextBlock(Height = 24, FontSize = 13, Text = "Connecting to Mercury...", TextAlignment = TextAlignment.Center)
 
     let progress = ProgressBar(Width = 287, Height = 25, IsIndeterminate = true)
 
@@ -100,14 +96,14 @@ let ui2012 () =
     let mainWindow =
         Window(
             Visibility = Visibility.Visible,
-            Title = "Mercury",
+            Title = name,
             FontFamily = FontFamily "Segoe UI Variable",
             Background = SolidColorBrush(Color.FromRgb(0xF0uy, 0xF0uy, 0xF0uy)),
             ResizeMode = ResizeMode.NoResize,
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left = windowPos SystemParameters.PrimaryScreenWidth width,
             Top =
-                (windowPos SystemParameters.PrimaryScreenHeight height)
+                windowPos SystemParameters.PrimaryScreenHeight height
                 - 24.,
             Width = width,
             Height = height,
@@ -117,31 +113,38 @@ let ui2012 () =
     Application(MainWindow = mainWindow), text, progress
 
 let createWindow () =
-    let app, text, progress = ui2012 ()
+    let app, text, progress = ui2016 ()
 
     // awesome pattern matching
     let updateMatch =
         function
-        | Text t -> text.Text <- t
+        | Text t ->
+            printfn "Text update: %s" t
+            text.Text <- t
         | Progress p -> progress.Value <- p
         | Indeterminate d -> progress.IsIndeterminate <- d
         | MessageBox s ->
             // required to be here, as first argument being window is required for top z-index
             // also needs to be async so it dont block
             printfn "1"
+
             MessageBox.Show(s, "Mercury Launcher", MessageBoxButton.YesNo)
             |> messageBoxReturn.Trigger
+
             printfn "2"
         | Shutdown ->
             printfn "trying,"
 
             while app.MainWindow.Visibility = Visibility.Visible do
                 printfn "trying"
-                System.Threading.Thread.Sleep(100)
+                System.Threading.Thread.Sleep 100
                 app.Shutdown()
 
     connect (fun update ->
+        printfn "Update received: %A" update
         let updateAction () = updateMatch update
-        app.Dispatcher.Invoke(updateAction))
+        app.Dispatcher.Invoke updateAction)
+
+    update Shutdown
 
     app.Run() |> ignore

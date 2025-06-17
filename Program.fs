@@ -6,14 +6,15 @@ open System.Net.Http
 open System.Threading
 open System.Windows
 open FSharp.Core.Result
-open LauncherWindow
+open Config
+open Window
 
 type ErrorType =
     | VersionTooLong
     | VersionMissing
     | VersionFailedToGet of HttpStatusCode
     | FailedToConnect of exn
-    | MercuryNotFound
+    | ClientNotFound
     | FailedToLaunch of exn
 
 let (>>=) f x = bind x f
@@ -22,16 +23,16 @@ let log i =
     printfn $"[LOG] {i}"
     Ok i
 
-let url = "https://setup.mercury2.com/version.txt"
+let url = $"https://setup.{domain}/version.txt"
 
 let requestVersionFail r =
     update (
         MessageBox
             $"\
-            An error occurred when trying to get the version from Mercury\n\
+            An error occurred when trying to get the version from {name}\n\
             Details: {r}.\n\
             \n\
-            Would you like to continue anyway with the latest local version?"
+            Would you like to continue anyway with the latest local version?" // todo: remove
     )
 
     messageBoxReturn.Publish
@@ -40,7 +41,7 @@ let requestVersionFail r =
 
 let requestVersion () =
     printfn "Requesting version..."
-    update (Text "Connecting to Mercury...")
+    update (Text $"Connecting to {name}...")
     let client = new HttpClient()
 
     try
@@ -49,14 +50,9 @@ let requestVersion () =
         if response.StatusCode = HttpStatusCode.OK then
             Ok(response.Content.ReadAsStringAsync().Result)
         else
-            match requestVersionFail response.ReasonPhrase with
-            | MessageBoxResult.OK -> Ok "version-17bef3811fe76890"
-            | _ -> Error(VersionFailedToGet response.StatusCode)
+            Error(VersionFailedToGet response.StatusCode)
     with
-    | e ->
-        match requestVersionFail e.Message with
-        | MessageBoxResult.OK -> Ok "version-17bef3811fe76890"
-        | _ -> Error(FailedToConnect e)
+    | e -> Error(FailedToConnect e)
 
 let validateVersion (v: string) =
     if v.Length > 32 then
@@ -67,18 +63,18 @@ let validateVersion (v: string) =
         Ok v
 
 let getPath v =
-    update (Text "Starting Mercury...")
+    update (Text $"Starting {name}...")
 
     Ok [| Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
-          "Mercury"
+          name
           "Versions"
           v
-          "MercuryPlayerBeta.exe" |]
+          $"{name}PlayerBeta.exe" |]
 
 let validatePath p =
     match File.Exists p with
     | true -> Ok p
-    | false -> Error MercuryNotFound
+    | false -> Error ClientNotFound
 
 let launch (p: string) =
     try
@@ -113,11 +109,13 @@ let init () =
         | VersionTooLong -> printfn "Version string too long"
         | VersionMissing -> printfn "Version response was missing"
         | VersionFailedToGet code -> printfn $"Failed to get version: Error {code}"
-        | FailedToConnect ex -> printfn $"Failed to connect to Mercury: {ex.Message}"
-        | MercuryNotFound -> printfn "Mercury not found"
-        | FailedToLaunch ex -> printfn $"Failed to start Mercury: {ex.Message}"
+        | FailedToConnect ex -> printfn $"Failed to connect to {name}: {ex.Message}"
+        | ClientNotFound -> printfn $"{name} not found"
+        | FailedToLaunch ex -> printfn $"Failed to start {name}: {ex.Message}"
 
+    printfn "Waiting for window to close..."
     update Shutdown
+    printfn "closd."
 
 
 [<EntryPoint; STAThread>]

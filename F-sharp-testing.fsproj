@@ -8,6 +8,7 @@
 		<UseWpf>true</UseWpf>
 	</PropertyGroup>
 	<ItemGroup>
+		<Compile Include="Config.fs" />
 		<Compile Include="Window.fs" />
 		<Compile Include="Program.fs" />
 	</ItemGroup>
