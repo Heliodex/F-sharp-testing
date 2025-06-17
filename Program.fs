@@ -3,8 +3,6 @@ open System.Diagnostics
 open System.IO
 open System.Net
 open System.Net.Http
-open System.Threading
-open System.Windows
 open FSharp.Core.Result
 open Config
 open Window
@@ -25,8 +23,8 @@ let log i =
 
 let url = $"https://setup.{domain}/version.txt"
 
-let requestVersionFail r =
-    update (
+let requestVersionFail (e: Event<Update>) r =
+    e.Trigger(
         MessageBox
             $"\
             An error occurred when trying to get the version from {name}\n\
@@ -39,9 +37,9 @@ let requestVersionFail r =
     |> Async.AwaitEvent
     |> Async.RunSynchronously
 
-let requestVersion () =
+let requestVersion (e: Event<Update>) =
     printfn "Requesting version..."
-    update (Text $"Connecting to {name}...")
+    e.Trigger(Text $"Connecting to {name}...")
     let client = new HttpClient()
 
     try
@@ -62,8 +60,8 @@ let validateVersion (v: string) =
     else
         Ok v
 
-let getPath v =
-    update (Text $"Starting {name}...")
+let getPath (e: Event<Update>) v =
+    e.Trigger(Text $"Starting {name}...")
 
     Ok [| Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
           name
@@ -82,21 +80,13 @@ let launch (p: string) =
     with
     | e -> Error(FailedToLaunch e)
 
-let init () =
-    printfn "Creating window..."
-
-    let thread = Thread(ThreadStart createWindow)
-    thread.SetApartmentState ApartmentState.STA
-    thread.Start()
-
-    printfn "Window created"
-
+let init (e: Event<Update>) =
     let result =
-        requestVersion ()
+        requestVersion e
         >>= log
         >>= validateVersion
         >>= log
-        >>= getPath
+        >>= getPath e
         |> map Path.Combine
         >>= validatePath
         >>= log
@@ -114,18 +104,17 @@ let init () =
         | FailedToLaunch ex -> printfn $"Failed to start {name}: {ex.Message}"
 
     printfn "Waiting for window to close..."
-    update Shutdown
+    e.Trigger Shutdown
     printfn "closd."
-
 
 [<EntryPoint; STAThread>]
 let main _ =
     // dot net error handling bruh
     try
-        init ()
+        createWindow init
     with
     | e ->
-        printfn $"Error: {e.Message}"
+        printfn $"Error: {e}"
         Environment.Exit 1
 
     0

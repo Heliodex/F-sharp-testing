@@ -15,10 +15,6 @@ type Update =
     | MessageBox of string
     | Shutdown
 
-let connect, update =
-    let e = Event<Update>()
-    e.Publish.Add, e.Trigger
-
 let messageBoxReturn = Event<MessageBoxResult>()
 
 let SetPosition element x y =
@@ -79,7 +75,7 @@ let ui2012 () =
     let icon = createIcon 30
 
     let text =
-        TextBlock(Height = 24, FontSize = 13, Text = "Connecting to Mercury...", TextAlignment = TextAlignment.Center)
+        TextBlock(Height = 24, FontSize = 13, Text = $"Connecting to {name}...", TextAlignment = TextAlignment.Center)
 
     let progress = ProgressBar(Width = 287, Height = 25, IsIndeterminate = true)
 
@@ -112,15 +108,14 @@ let ui2012 () =
 
     Application(MainWindow = mainWindow), text, progress
 
-let createWindow () =
+let createWindow xfn =
     let app, text, progress = ui2016 ()
+    let e = Event<Update>()
 
     // awesome pattern matching
     let updateMatch =
         function
-        | Text t ->
-            printfn "Text update: %s" t
-            text.Text <- t
+        | Text t -> text.Text <- t
         | Progress p -> progress.Value <- p
         | Indeterminate d -> progress.IsIndeterminate <- d
         | MessageBox s ->
@@ -128,23 +123,14 @@ let createWindow () =
             // also needs to be async so it dont block
             printfn "1"
 
-            MessageBox.Show(s, "Mercury Launcher", MessageBoxButton.YesNo)
+            MessageBox.Show(s, $"{name} launcher", MessageBoxButton.YesNo)
             |> messageBoxReturn.Trigger
 
             printfn "2"
-        | Shutdown ->
-            printfn "trying,"
+        | Shutdown -> app.Shutdown()
 
-            while app.MainWindow.Visibility = Visibility.Visible do
-                printfn "trying"
-                System.Threading.Thread.Sleep 100
-                app.Shutdown()
+    e.Publish.Add(fun update -> app.Dispatcher.Invoke(fun () -> updateMatch update))
 
-    connect (fun update ->
-        printfn "Update received: %A" update
-        let updateAction () = updateMatch update
-        app.Dispatcher.Invoke updateAction)
-
-    update Shutdown
+    app.MainWindow.Loaded.Add(fun _ -> xfn e)
 
     app.Run() |> ignore
