@@ -1,10 +1,8 @@
 module Window
 
-open System
 open System.Windows
 open System.Windows.Controls
 open System.Windows.Media
-open System.Windows.Media.Imaging
 open Config
 
 // Really starting to get the hang of this F# thing
@@ -24,8 +22,7 @@ let SetPosition element x y =
 let windowPos s w = (s - w) / 2.
 
 let createIcon size =
-    let uri = Uri("./icon.png", UriKind.Relative)
-    Image(Width = size, Height = size, Source = BitmapImage uri)
+    Image(Width = size, Height = size, Source = imgIcon)
 
 let ui2016 () =
     let width, height = 500., 320.
@@ -47,7 +44,7 @@ let ui2016 () =
     SetPosition text ((width - text.Width) / 2.) 210
     SetPosition progress ((width - progress.Width) / 2.) 250
 
-    let children: UIElement [] = [| icon; text; progress |] // I have no idea whether to use a List or an Array
+    let children: UIElement [] = [| icon; text; progress |]
     let canvas = Canvas()
 
     children

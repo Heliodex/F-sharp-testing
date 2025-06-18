@@ -264,7 +264,9 @@ let init (u: Event<Update>) =
     u.Trigger Shutdown
 
 [<EntryPoint; STAThread>]
-let main _ =
+let main args =
+    printfn "Starting %s..." name
+    printfn "Arguments: %A" args
     // dot net error handling bruh
     try
         createWindow init

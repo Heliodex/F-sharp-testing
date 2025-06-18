@@ -2,12 +2,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
+		<PublishSingleFile>true</PublishSingleFile>
+		<IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>  
+
 		<TargetFramework>net9.0-windows</TargetFramework>
 		<RootNamespace>F_sharp_testing</RootNamespace>
 		<EnableWindowsTargeting>true</EnableWindowsTargeting>
 		<UseWpf>true</UseWpf>
 	</PropertyGroup>
 	<ItemGroup>
+		<EmbeddedResource Include="icon.png" />
 		<Compile Include="Config.fs" />
 		<Compile Include="Window.fs" />
 		<Compile Include="Program.fs" />
