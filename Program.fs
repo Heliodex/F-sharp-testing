@@ -14,9 +14,11 @@ type ErrorType =
     | VersionFailedToGet of HttpStatusCode
     | FailedToConnect of exn
     | FailedToDownload of exn
+    | FailedToUnpack of exn
     | FailedToInstall of exn
     | ClientNotFound
     | FailedToLaunch of exn
+    | BadLaunch of exn
 
 let (>>=) f x = bind x f
 
@@ -28,8 +30,6 @@ let url = $"https://setup.{domain}"
 let versionUrl = $"{url}/version"
 
 let requestVersion () =
-    printfn "Requesting version..."
-
     try
         use client = new HttpClient()
         use response = (client.GetAsync versionUrl).Result
@@ -51,14 +51,16 @@ let validateVersion (v: string) =
         Ok v
 
 let versionPath s v =
-    let path = [| "Versions"; v |]
+    let path = [| "Versions"; $"version-{v}" |]
 
     // add the version to the path
     Path.Combine(s, path |> Path.Combine)
 
 let playerPath s v =
-    // add the version to the path
     Path.Combine(versionPath s v, $"{name}PlayerBeta.exe")
+
+let studioPath s v =
+    Path.Combine(versionPath s v, $"{name}StudioBeta.exe")
 
 let getPath v =
     let path =
@@ -80,42 +82,48 @@ let downloadClient v =
     | :? AggregateException as e -> Error(FailedToDownload e.InnerException)
     | e -> Error(FailedToDownload e)
 
-let installClient p v (data: byte array) =
-    let path = versionPath p v
-
+let ungzipClient (data: byte array) =
     // we have the data, we'd like to un-gzip it
     try
-        // create the directory if it doesn't exist
-        printfn "Client installing at %s" path
-
-        // DirectoryInfo(path).Create()
-
         use tarGz = new MemoryStream(data)
-        use tar = new MemoryStream()
+        let tar = new MemoryStream()
         use decompressor = new GZipStream(tarGz, CompressionMode.Decompress)
         decompressor.CopyTo tar
 
-        printfn "Client extracting at %s" path
+        tar.Seek(0L, SeekOrigin.Begin) |> ignore
+
+        Ok tar
+    with
+    | e -> Error(FailedToUnpack e)
+
+let untarClient p v (tar: MemoryStream) =
+    let path = versionPath p v
+
+    try
+        // create the directory if it doesn't exist
+        Directory.CreateDirectory path |> ignore
 
         // extract the tar file
         Formats.Tar.TarFile.ExtractToDirectory(tar, path, true)
-
-        printfn "Client installed at %s" path
 
         Ok(p, v)
     with
     | e -> Error(FailedToInstall e)
 
-let ensurePath (p, v) =
-    match File.Exists(playerPath p v) with
-    | true ->
-        printfn "Client found at %s" p
-        Ok(true, p, v)
-    | _ -> Ok(false, p, v)
+let ensurePath (p, v) = Ok(File.Exists(playerPath p v), p, v)
 
 let launch (p, v) =
     try
-        Ok(Process.Start(playerPath p v, "--API test"))
+        Ok(Process.Start(playerPath p v, "-v"))
+    with
+    | e -> Error(FailedToLaunch e)
+
+let checkThatItLaunchedCorrectly (p: Process) =
+    try
+        if p.HasExited then
+            Error ClientNotFound
+        else
+            Ok()
     with
     | e -> Error(FailedToLaunch e)
 
@@ -155,11 +163,18 @@ let handleError (u: Event<Update>) =
                 \n\
                 Details: {ex.Message}"
         )
+    | FailedToUnpack ex ->
+        u.Trigger(
+            ErrorMessage
+                $"Failed to unpack the {name} client.\n\
+                \n\
+                Details: {ex.Message}"
+        )
     | FailedToInstall ex ->
         u.Trigger(
             ErrorMessage
                 $"Failed to install the {name} client.\n\
-                Please make sure you have write permissions to the installation directory.\n\
+                Please make sure you have write permissions to the installation directory, and there are no existing files with the same name.\n\
                 \n\
                 Details: {ex.Message}"
         )
@@ -176,6 +191,13 @@ let handleError (u: Event<Update>) =
                 \n\
                 Details: {ex.Message}"
         )
+    | BadLaunch ex ->
+        u.Trigger(
+            ErrorMessage
+                $"The {name} client launched, but it did not start correctly.\n\
+                \n\
+                Details: {ex.Message}"
+        )
 
 let yes _ x = Ok x
 
@@ -184,8 +206,10 @@ let downloadAndInstall (u: Event<Update>) (d, p, v) =
         Ok(p, v)
     else
         downloadClient v
+        >>= yes (u.Trigger(Text "Unpacking client..."))
+        >>= ungzipClient
         >>= yes (u.Trigger(Text "Installing client..."))
-        >>= installClient p v
+        >>= untarClient p v
 
 let init (u: Event<Update>) =
     let result =
@@ -197,11 +221,16 @@ let init (u: Event<Update>) =
         >>= ensurePath
         >>= yes (u.Trigger(Text "Downloading client..."))
         >>= downloadAndInstall u
-        >>= log
+        >>= yes (u.Trigger(Text $"Starting {name}..."))
         >>= launch
+        >>= yes (u.Trigger(Text $"Finishing up..."))
+        >>= checkThatItLaunchedCorrectly
 
     match result with
-    | Ok s -> printfn $"Success! {s}"
+    | Ok _ ->
+        u.Trigger(Indeterminate false)
+        u.Trigger(Progress 100.)
+        u.Trigger(Text "Done!")
     | Error e -> handleError u e
 
     u.Trigger Shutdown

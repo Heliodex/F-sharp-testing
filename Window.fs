@@ -6,7 +6,6 @@ open System.Windows.Controls
 open System.Windows.Media
 open System.Windows.Media.Imaging
 open Config
-open System.Threading
 
 // Really starting to get the hang of this F# thing
 type Update =
