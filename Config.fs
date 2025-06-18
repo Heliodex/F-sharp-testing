@@ -19,7 +19,7 @@ let readEmbeddedResourceAsBytes (resourceName: string) =
         memoryStream.ToArray()
 
 let imgIcon =
-    let icon = readEmbeddedResourceAsBytes "F_sharp_testing.icon.png"
+    let icon = readEmbeddedResourceAsBytes "MercuryLauncher.icon.png"
 
     let img = BitmapImage()
     img.BeginInit()

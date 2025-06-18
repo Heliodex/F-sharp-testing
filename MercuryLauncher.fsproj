@@ -6,7 +6,7 @@
 		<IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>  
 
 		<TargetFramework>net9.0-windows</TargetFramework>
-		<RootNamespace>F_sharp_testing</RootNamespace>
+		<RootNamespace>MercuryLauncher</RootNamespace>
 		<EnableWindowsTargeting>true</EnableWindowsTargeting>
 		<UseWpf>true</UseWpf>
 	</PropertyGroup>
