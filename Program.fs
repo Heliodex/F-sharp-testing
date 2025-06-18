@@ -7,6 +7,7 @@ open System.Net.Http
 open FSharp.Core.Result
 open Config
 open Window
+open Microsoft.Win32
 
 type ErrorType =
     | VersionTooLong
@@ -28,6 +29,7 @@ let log i =
 
 let url = $"https://setup.{domain}"
 let versionUrl = $"{url}/version"
+let launcherScheme = $"{name.ToLowerInvariant()}-launcher"
 
 let requestVersion () =
     try
@@ -55,6 +57,9 @@ let versionPath s v =
 
     // add the version to the path
     Path.Combine(s, path |> Path.Combine)
+
+let launcherPath s v =
+    Path.Combine(versionPath s v, $"{name}PlayerLauncher.exe")
 
 let playerPath s v =
     Path.Combine(versionPath s v, $"{name}PlayerBeta.exe")
@@ -117,6 +122,27 @@ let launch (p, v) =
         Ok(Process.Start(playerPath p v, "-v"))
     with
     | e -> Error(FailedToLaunch e)
+
+// Register the protocol handler to this application
+let registerURI (p, v) =
+    try
+        let key =
+            Registry.CurrentUser.CreateSubKey($"Software\\Classes\\{launcherScheme}", true)
+
+        // same as reg structure created by 2016 launcher
+        key.SetValue("", $"URL: {name} Protocol")
+        key.SetValue("URL Protocol", "")
+
+        let shellKey = key.CreateSubKey "shell"
+        let openKey = shellKey.CreateSubKey "open"
+        let commandKey = openKey.CreateSubKey "command"
+
+        let exePath = launcherPath p v
+        commandKey.SetValue("", $"\"{exePath}\" %%1")
+
+        Ok(p, v)
+    with
+    | e -> Error(BadLaunch e)
 
 let checkThatItLaunchedCorrectly (p: Process) =
     try
@@ -221,6 +247,8 @@ let init (u: Event<Update>) =
         >>= ensurePath
         >>= yes (u.Trigger(Text "Downloading client..."))
         >>= downloadAndInstall u
+        >>= yes (u.Trigger(Text "Registering protocol..."))
+        >>= registerURI
         >>= yes (u.Trigger(Text $"Starting {name}..."))
         >>= launch
         >>= yes (u.Trigger(Text $"Finishing up..."))
