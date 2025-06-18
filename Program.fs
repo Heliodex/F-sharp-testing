@@ -4,11 +4,12 @@ open System.IO
 open System.IO.Compression
 open System.Net
 open System.Net.Http
+open System.Threading
+open System.Windows
+open Microsoft.Win32
 open FSharp.Core.Result
 open Config
 open Window
-open Microsoft.Win32
-open System.Windows
 
 type ErrorType =
     | VersionTooLong
@@ -123,6 +124,7 @@ let ensurePath (p, v) = Ok(File.Exists(playerPath p v), p, v)
 
 let launch ticket (p, v) =
     let procArgs = [| $"--play -a {authUrl} -t {authTicket} -j {joinUrl ticket}" |]
+
     try
         Ok(Process.Start(playerPath p v, procArgs))
     with
@@ -242,7 +244,24 @@ let downloadAndInstall (u: Event<Update>) (d, p, v) =
         >>= yes (u.Trigger(Text "Installing client..."))
         >>= untarClient p v
 
-let init args (u: Event<Update>) =
+let launchAndComplete (u: Event<Update>) ticket (p, v) =
+    if ticket = "" then
+        u.Trigger(Indeterminate false)
+        u.Trigger(Progress 100.)
+        u.Trigger(Text "Done!")
+
+        u.Trigger(SuccessMessage $"{name} has been successfully installed and is ready to use!")
+        // TODO: redirect to site
+
+        Ok()
+    else
+        u.Trigger(Text $"Starting {name}...")
+
+        launch ticket (p, v)
+        >>= yes (u.Trigger(Text $"Finishing up..."))
+        >>= checkThatItLaunchedCorrectly
+
+let init ticket (u: Event<Update>) =
     let result =
         requestVersion ()
         >>= yes (u.Trigger(Text $"Connecting to {name}..."))
@@ -254,36 +273,42 @@ let init args (u: Event<Update>) =
         >>= downloadAndInstall u
         >>= yes (u.Trigger(Text "Registering protocol..."))
         >>= registerURI
-        >>= yes (u.Trigger(Text $"Starting {name}..."))
-        >>= launch args
-        >>= yes (u.Trigger(Text $"Finishing up..."))
-        >>= checkThatItLaunchedCorrectly
+        >>= launchAndComplete u ticket
 
     match result with
     | Ok _ ->
         u.Trigger(Indeterminate false)
         u.Trigger(Progress 100.)
         u.Trigger(Text "Done!")
+        Thread.Sleep 100 // give the UI a chance to update before closing
     | Error e -> handleError u e
 
     u.Trigger Shutdown
 
 [<EntryPoint; STAThread>]
 let main args =
-    if args.Length = 0 then
-        MessageBox.Show(
-            "Please open the launcher via a URL.",
-            $"{name} launcher",
-            MessageBoxButton.OK,
-            MessageBoxImage.Error
-        )
-        |> ignore
+    let ticket =
+        if args = [||] then
+            ""
+        else
+            let mainArg = args[0]
 
-        Environment.Exit 1
+            if not (mainArg.StartsWith launcherScheme) then
+                MessageBox.Show(
+                    $"The first argument must be a {launcherScheme} URL.",
+                    $"{name} launcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error
+                )
+                |> ignore
+
+                Environment.Exit 1
+
+            mainArg.Substring(launcherScheme.Length + 1)
 
     // dot net error handling bruh
     try
-        createWindow (init args[0])
+        createWindow (init ticket)
     with
     | _ -> Environment.Exit 1
 

@@ -10,6 +10,7 @@ type Update =
     | Text of string
     | Progress of float
     | Indeterminate of bool
+    | SuccessMessage of string
     | ErrorMessage of string
     | Shutdown
 
@@ -91,7 +92,7 @@ let ui2012 () =
             Visibility = Visibility.Visible,
             Title = name,
             FontFamily = FontFamily "Segoe UI Variable",
-            Background = SolidColorBrush(Color.FromRgb(0xF0uy, 0xF0uy, 0xF0uy)),
+            Background = SolidColorBrush(Color.FromRgb(0xf0uy, 0xf0uy, 0xf0uy)),
             ResizeMode = ResizeMode.NoResize,
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left = windowPos SystemParameters.PrimaryScreenWidth width,
@@ -115,11 +116,16 @@ let createWindow xfn =
         | Text t -> text.Text <- t
         | Progress p -> progress.Value <- p
         | Indeterminate d -> progress.IsIndeterminate <- d
-        | ErrorMessage s ->
-            app.Shutdown()
+        | SuccessMessage s ->
+            MessageBox.Show(s, $"{name} launcher", MessageBoxButton.OK, MessageBoxImage.Information)
+            |> ignore
 
+            app.Shutdown()
+        | ErrorMessage s ->
             MessageBox.Show(s, $"{name} launcher", MessageBoxButton.OK, MessageBoxImage.Error)
             |> ignore
+
+            app.Shutdown()
         | Shutdown -> app.Shutdown()
 
     u.Publish.Add(fun update -> app.Dispatcher.Invoke(fun () -> updateMatch update))
