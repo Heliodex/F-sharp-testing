@@ -21,7 +21,6 @@ const (
 	input    = "./staging"
 	output   = "./setup"
 	launcher = input + "/" + name + "PlayerLauncher.exe"
-	ext      = ".tar.gz"
 )
 
 var encoding = base32.NewEncoding("0123456789abcdefghijklmnopqrstuv").WithPadding(base32.NoPadding)
@@ -38,7 +37,7 @@ func compressStagingDir(o *bytes.Buffer) (id string, err error) {
 	}
 
 	// current unix timestamp
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 
 	// convert int64 to bytes
 	nowbytes := make([]byte, 8)
@@ -62,7 +61,7 @@ func compressStagingDir(o *bytes.Buffer) (id string, err error) {
 
 func writeStagingDir(hash string, o *bytes.Buffer) (err error) {
 	// write to output file
-	outputFile, err := os.Create(output + "/" + hash + ext)
+	outputFile, err := os.Create(output + "/" + hash)
 	if err != nil {
 		return fmt.Errorf("error creating output file: %w", err)
 	}
@@ -137,7 +136,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Staging directory compressed to %s in %s\n", ext, time.Since(start))
+	fmt.Printf("Staging directory compressed in %s\n", time.Since(start))
 	start = time.Now()
 
 	// zip staging files to output directory
@@ -147,4 +146,21 @@ func main() {
 	}
 
 	fmt.Printf("Staging files written to output directory in %s\n", time.Since(start))
+
+	// create or modify version.txt in output directory
+	versionFile, err := os.Create(output + "/version")
+	if err != nil {
+		fmt.Println("Error creating version file:", err)
+		os.Exit(1)
+	}
+	defer versionFile.Close()
+
+	 if _, err = versionFile.WriteString(id); err != nil {
+		fmt.Println("Error writing to version file:", err)
+		os.Exit(1)
+	 }
+
+	fmt.Println("version file created with ID", id)
+	fmt.Println("Launching missiles...")
+	fmt.Println("Setup deployer completed successfully.")
 }
