@@ -1,6 +1,7 @@
 ﻿open System
 open System.Diagnostics
 open System.IO
+open System.IO.Compression
 open System.Net
 open System.Net.Http
 open FSharp.Core.Result
@@ -12,6 +13,8 @@ type ErrorType =
     | VersionMissing
     | VersionFailedToGet of HttpStatusCode
     | FailedToConnect of exn
+    | FailedToDownload of exn
+    | FailedToInstall of exn
     | ClientNotFound
     | FailedToLaunch of exn
 
@@ -22,7 +25,7 @@ let log i =
     Ok i
 
 let url = $"https://setup.{domain}"
-let versionUrl = $"{url}/version.txt"
+let versionUrl = $"{url}/version"
 
 let requestVersion (u: Event<Update>) =
     printfn "Requesting version..."
@@ -41,50 +44,86 @@ let requestVersion (u: Event<Update>) =
     | e -> Error(FailedToConnect e)
 
 let validateVersion (v: string) =
-    if v.Length > 32 then
+    if v.Length > 20 then
         Error VersionTooLong
     elif v.Length = 0 then
         Error VersionMissing
     else
         Ok v
 
+let versionPath s v =
+    let path = [| "Versions"; v |]
+
+    // add the version to the path
+    Path.Combine(s, path |> Path.Combine)
+
+let playerPath s v =
+    // add the version to the path
+    Path.Combine(versionPath s v, $"{name}PlayerBeta.exe")
+
 let getPath (u: Event<Update>) v =
     u.Trigger(Text "Getting client...")
 
     let path =
         [| Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
-           name
-           "Versions"
-           v
-           $"{name}PlayerBeta.exe" |]
+           name |]
 
     Ok(path |> Path.Combine, v)
 
-let installClient (u: Event<Update>) (v: string) (p: string) =
-    u.Trigger(Text "Installing client...")
+
+let downloadClient (u: Event<Update>) v =
+    u.Trigger(Text "Downloading client...")
 
     try
         use client = new HttpClient()
-        use response = (client.GetAsync versionUrl).Result
+        use response = (client.GetAsync $"{url}/{v}").Result
 
         if response.StatusCode = HttpStatusCode.OK then
-            Ok p
+            Ok(response.Content.ReadAsByteArrayAsync().Result)
         else
             Error(VersionFailedToGet response.StatusCode)
     with
-    | :? AggregateException as e -> Error(FailedToConnect e.InnerException)
-    | e -> Error(FailedToConnect e)
+    | :? AggregateException as e -> Error(FailedToDownload e.InnerException)
+    | e -> Error(FailedToDownload e)
 
-let validatePath (u: Event<Update>) (v: string, p: string) =
-    match File.Exists p with
+let installClient (u: Event<Update>) (p, v) (data: byte array) =
+    u.Trigger(Text "Installing client...")
+
+    let path = versionPath p v
+
+    // we have the data, we'd like to un-gzip it
+    try
+        // create the directory if it doesn't exist
+        printfn "Client installing at %s" path
+
+        // DirectoryInfo(path).Create()
+
+        use tarGz = new MemoryStream(data)
+        use tar = new MemoryStream()
+        use decompressor = new GZipStream(tarGz, CompressionMode.Decompress)
+        decompressor.CopyTo tar
+
+        printfn "Client extracting at %s" path
+
+        // extract the tar file
+        Formats.Tar.TarFile.ExtractToDirectory(tar, path, true)
+
+        printfn "Client installed at %s" path
+
+        Ok(p, v)
+    with
+    | e -> Error(FailedToInstall e)
+
+let ensurePath (u: Event<Update>) (p, v) =
+    match File.Exists(playerPath p v) with
     | true ->
         printfn "Client found at %s" p
-        Ok p
-    | _ -> installClient u v p
+        Ok(p, v)
+    | _ -> downloadClient u v >>= installClient u (p, v)
 
-let launch (p: string) =
+let launch (p, v) =
     try
-        Ok(Process.Start(p, "--API test"))
+        Ok(Process.Start(playerPath p v, "--API test"))
     with
     | e -> Error(FailedToLaunch e)
 
@@ -116,6 +155,22 @@ let handleError (u: Event<Update>) =
                 \n\
                 Details: {ex.Message}"
         )
+    | FailedToDownload ex ->
+        u.Trigger(
+            ErrorMessage
+                $"Failed to download the {name} client.\n\
+                Please check your internet connection and try again.\n\
+                \n\
+                Details: {ex.Message}"
+        )
+    | FailedToInstall ex ->
+        u.Trigger(
+            ErrorMessage
+                $"Failed to install the {name} client.\n\
+                Please make sure you have write permissions to the installation directory.\n\
+                \n\
+                Details: {ex.Message}"
+        )
     | ClientNotFound ->
         u.Trigger(
             ErrorMessage
@@ -126,7 +181,6 @@ let handleError (u: Event<Update>) =
         u.Trigger(
             ErrorMessage
                 $"Failed to launch {name}.\n\
-                Please make sure that the client is installed and try again.\n\
                 \n\
                 Details: {ex.Message}"
         )
@@ -136,8 +190,7 @@ let init (u: Event<Update>) =
         requestVersion u
         >>= validateVersion
         >>= getPath u
-        >>= log
-        >>= validatePath u
+        >>= ensurePath u
         >>= log
         >>= launch
 
