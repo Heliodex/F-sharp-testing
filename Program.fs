@@ -8,6 +8,7 @@ open FSharp.Core.Result
 open Config
 open Window
 open Microsoft.Win32
+open System.Windows
 
 type ErrorType =
     | VersionTooLong
@@ -29,7 +30,10 @@ let log i =
 
 let url = $"https://setup.{domain}"
 let versionUrl = $"{url}/version"
+let authUrl = $"{url}/negotiate" // /Login/Negotiate.ashx
+let joinUrl ticket = $"{url}/game/join?ticket=%s{ticket}"
 let launcherScheme = $"{name.ToLowerInvariant()}-launcher"
+let authTicket = "test" // LRORL
 
 let requestVersion () =
     try
@@ -117,9 +121,10 @@ let untarClient p v (tar: MemoryStream) =
 
 let ensurePath (p, v) = Ok(File.Exists(playerPath p v), p, v)
 
-let launch (p, v) =
+let launch ticket (p, v) =
+    let procArgs = [| $"--play -a {authUrl} -t {authTicket} -j {joinUrl ticket}" |]
     try
-        Ok(Process.Start(playerPath p v, "-v"))
+        Ok(Process.Start(playerPath p v, procArgs))
     with
     | e -> Error(FailedToLaunch e)
 
@@ -237,7 +242,7 @@ let downloadAndInstall (u: Event<Update>) (d, p, v) =
         >>= yes (u.Trigger(Text "Installing client..."))
         >>= untarClient p v
 
-let init (u: Event<Update>) =
+let init args (u: Event<Update>) =
     let result =
         requestVersion ()
         >>= yes (u.Trigger(Text $"Connecting to {name}..."))
@@ -250,7 +255,7 @@ let init (u: Event<Update>) =
         >>= yes (u.Trigger(Text "Registering protocol..."))
         >>= registerURI
         >>= yes (u.Trigger(Text $"Starting {name}..."))
-        >>= launch
+        >>= launch args
         >>= yes (u.Trigger(Text $"Finishing up..."))
         >>= checkThatItLaunchedCorrectly
 
@@ -265,14 +270,21 @@ let init (u: Event<Update>) =
 
 [<EntryPoint; STAThread>]
 let main args =
-    printfn "Starting %s..." name
-    printfn "Arguments: %A" args
+    if args.Length = 0 then
+        MessageBox.Show(
+            "Please open the launcher via a URL.",
+            $"{name} launcher",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error
+        )
+        |> ignore
+
+        Environment.Exit 1
+
     // dot net error handling bruh
     try
-        createWindow init
+        createWindow (init args[0])
     with
-    | e ->
-        printfn $"Error: {e}"
-        Environment.Exit 1
+    | _ -> Environment.Exit 1
 
     0
