@@ -27,9 +27,8 @@ let log i =
 let url = $"https://setup.{domain}"
 let versionUrl = $"{url}/version"
 
-let requestVersion (u: Event<Update>) =
+let requestVersion () =
     printfn "Requesting version..."
-    u.Trigger(Text $"Connecting to {name}...")
 
     try
         use client = new HttpClient()
@@ -61,19 +60,14 @@ let playerPath s v =
     // add the version to the path
     Path.Combine(versionPath s v, $"{name}PlayerBeta.exe")
 
-let getPath (u: Event<Update>) v =
-    u.Trigger(Text "Getting client...")
-
+let getPath v =
     let path =
         [| Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData
            name |]
 
     Ok(path |> Path.Combine, v)
 
-
-let downloadClient (u: Event<Update>) v =
-    u.Trigger(Text "Downloading client...")
-
+let downloadClient v =
     try
         use client = new HttpClient()
         use response = (client.GetAsync $"{url}/{v}").Result
@@ -86,9 +80,7 @@ let downloadClient (u: Event<Update>) v =
     | :? AggregateException as e -> Error(FailedToDownload e.InnerException)
     | e -> Error(FailedToDownload e)
 
-let installClient (u: Event<Update>) (p, v) (data: byte array) =
-    u.Trigger(Text "Installing client...")
-
+let installClient p v (data: byte array) =
     let path = versionPath p v
 
     // we have the data, we'd like to un-gzip it
@@ -114,12 +106,12 @@ let installClient (u: Event<Update>) (p, v) (data: byte array) =
     with
     | e -> Error(FailedToInstall e)
 
-let ensurePath (u: Event<Update>) (p, v) =
+let ensurePath (p, v) =
     match File.Exists(playerPath p v) with
     | true ->
         printfn "Client found at %s" p
-        Ok(p, v)
-    | _ -> downloadClient u v >>= installClient u (p, v)
+        Ok(true, p, v)
+    | _ -> Ok(false, p, v)
 
 let launch (p, v) =
     try
@@ -185,12 +177,26 @@ let handleError (u: Event<Update>) =
                 Details: {ex.Message}"
         )
 
+let yes _ x = Ok x
+
+let downloadAndInstall (u: Event<Update>) (d, p, v) =
+    if d then
+        Ok(p, v)
+    else
+        downloadClient v
+        >>= yes (u.Trigger(Text "Installing client..."))
+        >>= installClient p v
+
 let init (u: Event<Update>) =
     let result =
-        requestVersion u
+        requestVersion ()
+        >>= yes (u.Trigger(Text $"Connecting to {name}..."))
         >>= validateVersion
-        >>= getPath u
-        >>= ensurePath u
+        >>= getPath
+        >>= yes (u.Trigger(Text "Getting client..."))
+        >>= ensurePath
+        >>= yes (u.Trigger(Text "Downloading client..."))
+        >>= downloadAndInstall u
         >>= log
         >>= launch
 

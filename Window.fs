@@ -128,9 +128,6 @@ let createWindow xfn =
 
     u.Publish.Add(fun update -> app.Dispatcher.Invoke(fun () -> updateMatch update))
 
-    app.MainWindow.Loaded.Add (fun _ ->
-        Thread.Sleep Timeout.Infinite
-
-        xfn u)
+    app.MainWindow.Loaded.Add(fun _ -> async { xfn u } |> Async.Start)
 
     app.Run() |> ignore
