@@ -30,8 +30,9 @@ let log i =
     printfn $"[LOG] {i}"
     Ok i
 
-let url = $"https://setup.{domain}"
-let versionUrl = $"{url}/version"
+let url = $"https://{domain}"
+let setupUrl = $"https://setup.{domain}"
+let versionUrl = $"{setupUrl}/version"
 let authUrl = $"{url}/negotiate" // /Login/Negotiate.ashx
 let joinUrl ticket = $"{url}/game/join?ticket=%s{ticket}"
 let launcherScheme = $"{name.ToLowerInvariant()}-launcher"
@@ -84,7 +85,7 @@ let getPath v =
 let downloadClient v =
     try
         use client = new HttpClient()
-        use response = (client.GetAsync $"{url}/{v}").Result
+        use response = (client.GetAsync $"{setupUrl}/{v}").Result
 
         if response.StatusCode = HttpStatusCode.OK then
             Ok(response.Content.ReadAsByteArrayAsync().Result)

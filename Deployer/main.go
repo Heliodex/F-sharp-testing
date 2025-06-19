@@ -1,5 +1,5 @@
-// Mercury Setup Deployer 3, now in Go
-// goroutines make it run fast as FUCK
+// Mercury Setup Deployer 4
+// The only setup deployer that isn't overengineered
 
 package main
 
