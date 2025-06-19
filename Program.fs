@@ -20,6 +20,7 @@ type ErrorType =
     | FailedToUnpack of exn
     | FailedToInstall of exn
     | ClientNotFound
+    | FailedToRemoveOldVersions
     | FailedToLaunch of exn
     | BadLaunch of exn
 
@@ -57,11 +58,12 @@ let validateVersion (v: string) =
     else
         Ok v
 
-let versionPath s v =
-    let path = [| "Versions"; $"version-{v}" |]
+// add the versions directory to the path
+let versionsPath s = Path.Combine(s, "Versions")
 
-    // add the version to the path
-    Path.Combine(s, path |> Path.Combine)
+// add the version to the path
+let versionPath s v =
+    Path.Combine(versionsPath s, $"version-{v}")
 
 let launcherPath s v =
     Path.Combine(versionPath s v, $"{name}Launcher.exe")
@@ -95,13 +97,12 @@ let downloadClient v =
 let ungzipClient (data: byte array) =
     // we have the data, we'd like to un-gzip it
     try
-        use tarGz = new MemoryStream(data)
         let tar = new MemoryStream()
-        use decompressor = new GZipStream(tarGz, CompressionMode.Decompress)
-        decompressor.CopyTo tar
 
-        tar.Seek(0L, SeekOrigin.Begin) |> ignore
+        (new GZipStream(new MemoryStream(data), CompressionMode.Decompress))
+            .CopyTo tar
 
+        tar.Seek(0, SeekOrigin.Begin) |> ignore
         Ok tar
     with
     | e -> Error(FailedToUnpack e)
@@ -167,6 +168,29 @@ let checkThatItLaunchedCorrectly (p: Process) =
     with
     | e -> Error(FailedToLaunch e)
 
+let clearOldVersions p v () =
+    let path = versionsPath p
+
+    if Directory.Exists path then
+        let failedVersions =
+            Directory.GetDirectories path
+            |> Array.filter (fun d -> d <> versionPath p v)
+            |> Array.map (fun d ->
+                try
+                    Directory.Delete(d, true)
+                    Ok()
+                with
+                | e -> Error e)
+            |> Array.filter _.IsError
+            |> _.Length
+            
+        if failedVersions = 0 then
+            Ok()
+        else
+            Error FailedToRemoveOldVersions
+    else
+        Error ClientNotFound
+
 let handleError (u: Event<Update>) =
     function
     | VersionTooLong ->
@@ -214,7 +238,7 @@ let handleError (u: Event<Update>) =
         u.Trigger(
             ErrorMessage
                 $"Failed to install the {name} client.\n\
-                Please make sure you have write permissions to the installation directory, and there are no existing files with the same name.\n\
+                Please make sure write permissions are given to the installation directory, and there are no existing files with the same name.\n\
                 \n\
                 Details: {ex.Message}"
         )
@@ -223,6 +247,12 @@ let handleError (u: Event<Update>) =
             ErrorMessage
                 $"The {name} client was not found.\n\
                 Please make sure that the client is installed and try again."
+        )
+    | FailedToRemoveOldVersions ->
+        u.Trigger(
+            ErrorMessage
+                $"Failed to remove old versions of the {name} client.\n\
+                Please make sure write permissions are given to the versions directory."
         )
     | FailedToLaunch ex ->
         u.Trigger(
@@ -253,20 +283,26 @@ let downloadAndInstall (u: Event<Update>) (d, p, v) =
 
 let launchAndComplete (u: Event<Update>) ticket (p, v) =
     if ticket = "" then
-        u.Trigger(Indeterminate false)
-        u.Trigger(Progress 100.)
-        u.Trigger(Text "Done!")
+        u.Trigger(Text $"Clearing old versions...")
+        let r = clearOldVersions p v ()
 
-        u.Trigger(SuccessMessage $"{name} has been successfully installed and is ready to use!")
+        if r.IsOk then
+            u.Trigger(Progress 100.)
+            u.Trigger(Indeterminate false)
+            u.Trigger(Text "Done!")
+
+            u.Trigger(SuccessMessage $"{name} has been successfully installed and is ready to use!")
+
         // TODO: redirect to site
-
-        Ok()
+        r
     else
         u.Trigger(Text $"Starting {name}...")
 
         launch ticket (p, v)
         >>= yes (u.Trigger(Text $"Finishing up..."))
         >>= checkThatItLaunchedCorrectly
+        >>= yes (u.Trigger(Text $"Clearing old versions..."))
+        >>= clearOldVersions p v
 
 let init ticket (u: Event<Update>) =
     let result =
@@ -284,8 +320,8 @@ let init ticket (u: Event<Update>) =
 
     match result with
     | Ok _ ->
-        u.Trigger(Indeterminate false)
         u.Trigger(Progress 100.)
+        u.Trigger(Indeterminate false)
         u.Trigger(Text "Done!")
         Thread.Sleep 100 // give the UI a chance to update before closing
     | Error e -> handleError u e
