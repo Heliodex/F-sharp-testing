@@ -123,7 +123,14 @@ let untarClient p v (tar: MemoryStream) =
 let ensurePath (p, v) = Ok(File.Exists(playerPath p v), p, v)
 
 let launch ticket (p, v) =
-    let procArgs = [| $"--play -a {authUrl} -t {authTicket} -j {joinUrl ticket}" |]
+    let procArgs =
+        [| $"--play"
+           "-a"
+           authUrl
+           "-t"
+           authTicket
+           "-j"
+           joinUrl ticket |]
 
     try
         Ok(Process.Start(playerPath p v, procArgs))

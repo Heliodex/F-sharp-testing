@@ -1,12 +1,12 @@
-﻿<?xml version="1.1" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 		<PublishSingleFile>true</PublishSingleFile>
 		<DebugType>None</DebugType>
 
-		<RuntimeIdentifier>win-x86</RuntimeIdentifier>
-		<TargetFramework>net10.0-windows</TargetFramework>
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<TargetFramework>net9.0-windows</TargetFramework>
 		<RootNamespace>MercuryLauncher</RootNamespace>
 		<EnableWindowsTargeting>true</EnableWindowsTargeting>
 		<UseWpf>true</UseWpf>
