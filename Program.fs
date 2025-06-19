@@ -64,7 +64,7 @@ let versionPath s v =
     Path.Combine(s, path |> Path.Combine)
 
 let launcherPath s v =
-    Path.Combine(versionPath s v, $"{name}PlayerLauncher.exe")
+    Path.Combine(versionPath s v, $"{name}Launcher.exe")
 
 let playerPath s v =
     Path.Combine(versionPath s v, $"{name}PlayerBeta.exe")

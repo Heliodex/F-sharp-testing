@@ -20,7 +20,8 @@ const (
 	name     = "Mercury"
 	input    = "./staging"
 	output   = "./setup"
-	launcher = input + "/" + name + "PlayerLauncher.exe"
+	launcherName = name + "Launcher.exe"
+	launcher = input + "/" + launcherName
 )
 
 var encoding = base32.NewEncoding("0123456789abcdefghijklmnopqrstuv").WithPadding(base32.NoPadding)
@@ -102,7 +103,7 @@ func main() {
 
 	// copy launcher to output directory
 	if _, err := os.Stat(launcher); os.IsNotExist(err) {
-		fmt.Println("Launcher not found in staging directory. Please place the launcher in the staging directory or run this script from a different directory.")
+		fmt.Printf("Launcher not found in staging directory. Please place the launcher in the staging directory (%sLauncher.exe) or run this script from a different directory.\n", name)
 		os.Exit(1)
 	}
 
@@ -113,7 +114,7 @@ func main() {
 	}
 	defer src.Close()
 
-	dst, err := os.Create(output + "/" + name + "PlayerLauncher.exe")
+	dst, err := os.Create(output + "/" + name + "Launcher.exe")
 	if err != nil {
 		fmt.Println("Error creating launcher file in output directory:", err)
 		os.Exit(1)
@@ -161,6 +162,5 @@ func main() {
 	 }
 
 	fmt.Println("version file created with ID", id)
-	fmt.Println("Launching missiles...")
 	fmt.Println("Setup deployer completed successfully.")
 }
