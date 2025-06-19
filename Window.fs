@@ -45,28 +45,26 @@ let ui2016 () =
     SetPosition text ((width - text.Width) / 2.) 210
     SetPosition progress ((width - progress.Width) / 2.) 250
 
-    let children: UIElement [] = [| icon; text; progress |]
     let canvas = Canvas()
 
-    children
+    ([| icon; text; progress |]: UIElement [])
     |> Array.iter (canvas.Children.Add >> ignore)
 
-    let mainWindow =
-        Window(
-            Visibility = Visibility.Visible,
-            WindowStyle = WindowStyle.None,
-            BorderThickness = Thickness 1,
-            BorderBrush = Brushes.LightGray,
-            AllowsTransparency = true,
-            WindowStartupLocation = WindowStartupLocation.Manual,
-            Left = windowPos SystemParameters.PrimaryScreenWidth width,
-            Top = windowPos SystemParameters.PrimaryScreenHeight height,
-            Width = width,
-            Height = height,
-            Content = canvas
-        )
-
-    Application(MainWindow = mainWindow), text, progress
+    Window(
+        Visibility = Visibility.Visible,
+        WindowStyle = WindowStyle.None,
+        BorderThickness = Thickness 1,
+        BorderBrush = Brushes.LightGray,
+        AllowsTransparency = true,
+        WindowStartupLocation = WindowStartupLocation.Manual,
+        Left = windowPos SystemParameters.PrimaryScreenWidth width,
+        Top = windowPos SystemParameters.PrimaryScreenHeight height,
+        Width = width,
+        Height = height,
+        Content = canvas
+    ),
+    text,
+    progress
 
 let ui2012 () =
     let width, height = 378., 168.
@@ -81,33 +79,32 @@ let ui2012 () =
     SetPosition text 58 23
     SetPosition progress 58 51
 
-    let children: UIElement [] = [| icon; text; progress |] // I have no idea whether to use a List or an Array
     let canvas = Canvas()
 
-    children
+    ([| icon; text; progress |]: UIElement [])
     |> Array.iter (canvas.Children.Add >> ignore)
 
-    let mainWindow =
-        Window(
-            Visibility = Visibility.Visible,
-            Title = name,
-            FontFamily = FontFamily "Segoe UI Variable",
-            Background = SolidColorBrush(Color.FromRgb(0xf0uy, 0xf0uy, 0xf0uy)),
-            ResizeMode = ResizeMode.NoResize,
-            WindowStartupLocation = WindowStartupLocation.Manual,
-            Left = windowPos SystemParameters.PrimaryScreenWidth width,
-            Top =
-                windowPos SystemParameters.PrimaryScreenHeight height
-                - 24.,
-            Width = width,
-            Height = height,
-            Content = canvas
-        )
-
-    Application(MainWindow = mainWindow), text, progress
+    Window(
+        Visibility = Visibility.Visible,
+        Title = name,
+        FontFamily = FontFamily "Segoe UI Variable",
+        Background = SolidColorBrush(Color.FromRgb(0xf0uy, 0xf0uy, 0xf0uy)),
+        ResizeMode = ResizeMode.NoResize,
+        WindowStartupLocation = WindowStartupLocation.Manual,
+        Left = windowPos SystemParameters.PrimaryScreenWidth width,
+        Top =
+            windowPos SystemParameters.PrimaryScreenHeight height
+            - 24.,
+        Width = width,
+        Height = height,
+        Content = canvas
+    ),
+    text,
+    progress
 
 let createWindow xfn =
-    let app, text, progress = ui2016 ()
+    let window, text, progress = ui2016 ()
+    let app = Application(MainWindow = window)
     let u = Event<Update>()
 
     // awesome pattern matching
@@ -128,7 +125,7 @@ let createWindow xfn =
             app.Shutdown()
         | Shutdown -> app.Shutdown()
 
-    u.Publish.Add(fun update -> app.Dispatcher.Invoke(fun () -> updateMatch update))
+    u.Publish.Add(fun upd -> app.Dispatcher.Invoke(fun () -> updateMatch upd))
 
     app.MainWindow.Loaded.Add(fun _ -> async { xfn u } |> Async.Start)
 
